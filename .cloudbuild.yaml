@@ -1,0 +1,21 @@
+isteps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/eternal-concept-462204-s3/ml-churn-api', './api']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/eternal-concept-462204-s3/ml-churn-api']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args:
+      - 'gcloud'
+      - 'run'
+      - 'deploy'
+      - 'churn-api'
+      - '--image'
+      - 'gcr.io/eternal-concept-462204-s3/ml-churn-api'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+
