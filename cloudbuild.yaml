@@ -1,14 +1,43 @@
 options:
-  logging: NONE
+  logging: CLOUD_LOGGING_ONLY  # Required for debugging
+  logsBucket: 'gs://mlops-churn-bucket/build-logs'  # Custom log location
+  machineType: 'E2_HIGHCPU_8'  # For faster model training
+  timeout: 1800s  # 30 minute timeout
 
 steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/eternal-concept-462204-s3/ml-churn-api', './api']
+  # Step 1: Install dependencies and train model
+  - name: 'python:3.10'
+    id: 'train-model'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install --user pandas scikit-learn google-cloud-storage joblib
+        python ./api/train.py
+    env:
+      - 'GOOGLE_CLOUD_PROJECT=eternal-concept-462204-s3'
 
+  # Step 2: Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-container'
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/eternal-concept-462204-s3/ml-churn-api'
+      - '--build-arg'
+      - 'ENVIRONMENT=production'
+      - './api'
+    waitFor: ['train-model']
+
+  # Step 3: Push image to GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-image'
     args: ['push', 'gcr.io/eternal-concept-462204-s3/ml-churn-api']
+    waitFor: ['build-container']
 
+  # Step 4: Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-service'
     args:
       - 'gcloud'
       - 'run'
@@ -21,3 +50,23 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--set-env-vars=PORT=8080'
+      - '--cpu=2'
+      - '--memory=2Gi'
+      - '--min-instances=1'
+      - '--max-instances=5'
+      - '--timeout=300s'
+    waitFor: ['push-image']
+
+  # Step 5: Verify deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'verify-deployment'
+    args:
+      - 'bash'
+      - '-c'
+      - |
+        SERVICE_URL=$(gcloud run services describe churn-api \
+          --region=us-central1 \
+          --format='value(status.url)')
+        curl -s -X GET $$SERVICE_URL/healthz | grep -q '"status":"ready"' || exit 1
+    waitFor: ['deploy-service']
