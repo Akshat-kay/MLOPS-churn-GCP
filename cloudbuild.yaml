@@ -1,3 +1,6 @@
+options:
+  logging: NONE
+
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/eternal-concept-462204-s3/ml-churn-api', './api']
